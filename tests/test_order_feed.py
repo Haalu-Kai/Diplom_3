@@ -1,30 +1,22 @@
-import time
 import allure
 import pytest
-import requests
 
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+from pages.login_page import LoginPage
 from pages.main_page import MainPage
 from pages.order_feed_page import OrderFeedPage
 from pages.order_modal_page import OrderModal
-from config import INGREDIENTS_URL, ORDERS_URL, LONG_TIMEOUT
-
-
-def _get_ingredient_ids() -> list:
-    """Получает два валидных ID ингредиента из API."""
-    response = requests.get(INGREDIENTS_URL)
-    response.raise_for_status()
-    ingredients = response.json()["data"]
-    # Берём булку (индекс 0) и любой соус (индекс 1)
-    return [ingredients[0]["_id"], ingredients[1]["_id"]]
+from utils.helpers import get_ingredient_ids
+from config import LONG_TIMEOUT
 
 
 def _place_order_via_ui(driver, new_user) -> str:
     """
-    Вспомогательная функция:
-    логинит пользователя, добавляет ингредиенты и оформляет заказ через UI.
+    Логинит пользователя, добавляет ингредиент и оформляет заказ через UI.
     Возвращает номер заказа в виде строки.
     """
-    from pages.login_page import LoginPage
     login_page = LoginPage(driver)
     main_page = MainPage(driver)
     order_modal = OrderModal(driver)
@@ -32,16 +24,10 @@ def _place_order_via_ui(driver, new_user) -> str:
     login_page.open_login_page()
     login_page.login(new_user["email"], new_user["password"])
     main_page.find_visible(main_page.CONSTRUCTOR_HEADER)
-
-    # Добавляем ингредиент (булку — первый элемент)
     main_page.add_first_ingredient()
-
-    # Оформляем заказ
     main_page.click_order_button()
 
-    # Получаем номер заказа из модалки
-    order_number = order_modal.get_order_number()
-    return order_number
+    return order_modal.get_order_number()
 
 
 @allure.epic("Stellar Burgers UI")
@@ -70,19 +56,12 @@ class TestOrderFeed:
                 attachment_type=allure.attachment_type.TEXT,
             )
 
-        with allure.step("Возвращаемся на ленту заказов"):
+        with allure.step("Возвращаемся на ленту заказов и ждём обновления счётчика"):
             order_feed_page.open_order_feed()
-
-        with allure.step("Ждём обновления счётчика (до 30 секунд)"):
-            deadline = time.time() + LONG_TIMEOUT
-            counter_after = counter_before
-            while time.time() < deadline:
-                counter_after = order_feed_page.get_counter_all_time()
-                if counter_after > counter_before:
-                    break
-                time.sleep(1)
-                driver.refresh()
-
+            WebDriverWait(driver, LONG_TIMEOUT).until(
+                lambda d: order_feed_page.get_counter_all_time() > counter_before
+            )
+            counter_after = order_feed_page.get_counter_all_time()
             allure.attach(
                 str(counter_after),
                 name="Счётчик после заказа",
@@ -111,19 +90,12 @@ class TestOrderFeed:
         with allure.step("Создаём новый заказ"):
             order_number = _place_order_via_ui(driver, new_user)
 
-        with allure.step("Возвращаемся на ленту заказов"):
+        with allure.step("Возвращаемся на ленту заказов и ждём обновления счётчика"):
             order_feed_page.open_order_feed()
-
-        with allure.step("Ждём обновления счётчика (до 30 секунд)"):
-            deadline = time.time() + LONG_TIMEOUT
-            counter_after = counter_before
-            while time.time() < deadline:
-                counter_after = order_feed_page.get_counter_today()
-                if counter_after > counter_before:
-                    break
-                time.sleep(1)
-                driver.refresh()
-
+            WebDriverWait(driver, LONG_TIMEOUT).until(
+                lambda d: order_feed_page.get_counter_today() > counter_before
+            )
+            counter_after = order_feed_page.get_counter_today()
             allure.attach(
                 str(counter_after),
                 name="Счётчик после заказа",
